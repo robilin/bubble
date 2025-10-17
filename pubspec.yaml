@@ -1,12 +1,11 @@
 name: bubble_head
 description: A flutter plugin to enable you launch a bubble while putting your application to background and upon clicking the bubble brings your application back to foreground
-version: 0.0.4
-homepage: https://github.com/chrisoftech/bubble
-# publish_to: 
+version: 0.0.5
+homepage: https://github.com/robilin/bubble
 
 environment:
-  sdk: ">=2.12.0 <3.0.0"
-  flutter: ">=1.20.0"
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
 
 dependencies:
   flutter:
