@@ -1,3 +1,39 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Required for foreground service on API 28+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Required for foreground service type 'specialUse' on API 34+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <application>
+        <service
+            android:name=".BubbleHeadService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <!--
+                Required by Google Play for apps targeting API 34+ that use specialUse.
+                Describes why a floating widget foreground service is needed.
+            -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="This service runs a floating bubble widget that stays visible while the user interacts with other apps." />
+        </service>
+
+        <service
+            android:name=".LocationUpdatesService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="location" />
+    </application>
+
 </manifest>
+

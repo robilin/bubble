@@ -1,28 +1,40 @@
 package com.dsaved.bubblehead.bubble;
 
 import android.annotation.SuppressLint;
+import android.app.AlarmManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.WindowMetrics;
 import android.widget.ImageView;
 
 public class BubbleHeadService extends Service implements View.OnClickListener {
+    private static final String CHANNEL_ID = "bubble_head_service_channel";
+    private static final int NOTIFICATION_ID = 1001;
+
     private WindowManager mWindowManager;
     private View mFloatingWidgetView;
     private ImageView remove_image_view;
@@ -83,10 +95,93 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         return null;
     }
 
-    @SuppressLint({"ClickableViewAccessibility", "InflateParams"})
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        startForegroundCompat();
+        return START_STICKY;
+    }
+
+    /**
+     * Promotes this service to a foreground service with a persistent notification,
+     * which makes Android far less likely to kill it under memory pressure.
+     */
+    private void startForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Bubble Head",
+                    NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Keeps the floating bubble visible");
+            channel.setShowBadge(false);
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(channel);
+        }
+
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, launchIntent, pendingFlags);
+
+        Notification notification;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notification = new Notification.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Running in background")
+                    .setContentText("Tap to return to app")
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .build();
+        } else {
+            //noinspection deprecation
+            notification = new Notification.Builder(this)
+                    .setContentTitle("Running in background")
+                    .setContentText("Tap to return to app")
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .build();
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34+: must declare the foreground service type explicitly
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
+    }
+
+    /**
+     * When the user swipes the app from the Recents screen, reschedule the service
+     * to restart after a short delay instead of dying silently.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Intent restartIntent = new Intent(getApplicationContext(), BubbleHeadService.class);
+        int pendingFlags = PendingIntent.FLAG_ONE_SHOT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent restartPending = PendingIntent.getService(
+                getApplicationContext(), 1, restartIntent, pendingFlags);
+        AlarmManager alarmManager = (AlarmManager) getSystemService(ALARM_SERVICE);
+        if (alarmManager != null) {
+            alarmManager.set(
+                    AlarmManager.ELAPSED_REALTIME,
+                    SystemClock.elapsedRealtime() + 1000,
+                    restartPending);
+        }
+        super.onTaskRemoved(rootIntent);
+    }
+
+
     @Override
     public void onCreate() {
         super.onCreate();
+        // Promote to foreground immediately so Android won't kill us before onStartCommand fires
+        startForegroundCompat();
+
         // init WindowManager
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         getWindowManagerDefaultDisplay();
@@ -171,7 +266,13 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     }
 
     private void getWindowManagerDefaultDisplay() {
-        mWindowManager.getDefaultDisplay().getSize(szWindow);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowMetrics metrics = mWindowManager.getCurrentWindowMetrics();
+            Rect bounds = metrics.getBounds();
+            szWindow.set(bounds.width(), bounds.height());
+        } else {
+            mWindowManager.getDefaultDisplay().getSize(szWindow);
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -451,6 +552,12 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         }
         if (removeFloatingWidgetView != null) {
             mWindowManager.removeView(removeFloatingWidgetView);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            //noinspection deprecation
+            stopForeground(true);
         }
     }
 }

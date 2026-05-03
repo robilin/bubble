@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.dsaved.bubblehead.bubble_example">
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
    <application
         android:label="bubble_example"
@@ -48,7 +52,13 @@
        <service
            android:name="com.dsaved.bubblehead.bubble.BubbleHeadService"
            android:enabled="true"
-           android:exported="false"/>
+           android:exported="false"
+           android:stopWithTask="false"
+           android:foregroundServiceType="specialUse">
+           <property
+               android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+               android:value="This service runs a floating bubble widget that stays visible while the user interacts with other apps." />
+       </service>
 
     </application>
 </manifest>

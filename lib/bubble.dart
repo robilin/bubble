@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 class Bubble {
   static const MethodChannel _channel =
       const MethodChannel('com.dsaved.bubble.head');
+  static const EventChannel _locationEventsChannel =
+      EventChannel('com.dsaved.bubble.head/location_events');
 
   bool shouldBounce;
   bool showCloseButton;
@@ -58,5 +60,67 @@ class Bubble {
       print('❌ Error stopping bubble: $e');
       rethrow;
     }
+  }
+
+  /// Starts periodic background location uploads to the configured HTTPS endpoint.
+  Future<void> startLocationUpdates({
+    required String httpsUrl,
+    Duration interval = const Duration(seconds: 15),
+    Map<String, String>? headers,
+    Map<String, dynamic>? metadata,
+    int maxQueueSize = 200,
+    Duration initialBackoff = const Duration(seconds: 3),
+    Duration maxBackoff = const Duration(seconds: 60),
+    String? authRefreshUrl,
+    Map<String, String>? authRefreshHeaders,
+    Map<String, dynamic>? authRefreshBody,
+    String authTokenResponseKey = 'accessToken',
+    String authHeaderName = 'Authorization',
+    String authHeaderPrefix = 'Bearer ',
+  }) async {
+    if (!httpsUrl.startsWith('https://')) {
+      throw ArgumentError('Only HTTPS endpoints are allowed.');
+    }
+
+    if (authRefreshUrl != null && !authRefreshUrl.startsWith('https://')) {
+      throw ArgumentError('authRefreshUrl must be HTTPS when provided.');
+    }
+
+    final int intervalMs =
+        interval.inMilliseconds < 5000 ? 5000 : interval.inMilliseconds;
+    final int initialBackoffMs = initialBackoff.inMilliseconds < 1000
+        ? 1000
+        : initialBackoff.inMilliseconds;
+    final int maxBackoffMs = maxBackoff.inMilliseconds < initialBackoffMs
+        ? initialBackoffMs
+        : maxBackoff.inMilliseconds;
+
+    await _channel.invokeMethod('startLocationUpdates', {
+      'url': httpsUrl,
+      'intervalMs': intervalMs,
+      'headers': headers ?? <String, String>{},
+      'metadata': metadata ?? <String, dynamic>{},
+      'maxQueueSize': maxQueueSize < 10 ? 10 : maxQueueSize,
+      'initialBackoffMs': initialBackoffMs,
+      'maxBackoffMs': maxBackoffMs,
+      'authRefreshUrl': authRefreshUrl,
+      'authRefreshHeaders': authRefreshHeaders ?? <String, String>{},
+      'authRefreshBody': authRefreshBody ?? <String, dynamic>{},
+      'authTokenResponseKey': authTokenResponseKey,
+      'authHeaderName': authHeaderName,
+      'authHeaderPrefix': authHeaderPrefix,
+    });
+  }
+
+  /// Stops background location uploads started by [startLocationUpdates].
+  Future<void> stopLocationUpdates() async {
+    await _channel.invokeMethod('stopLocationUpdates');
+  }
+
+  /// Emits status updates from the native background location pipeline.
+  Stream<Map<String, dynamic>> get locationUpdateEvents {
+    return _locationEventsChannel.receiveBroadcastStream().map((dynamic event) {
+      return Map<String, dynamic>.from(event as Map);
+    });
   }
 }

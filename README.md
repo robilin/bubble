@@ -1,128 +1,234 @@
 # bubble_head
 
+Android-first Flutter plugin for:
+- Floating chat-head style bubble overlay
+- Bringing your app to foreground when the bubble is tapped
+- Optional background location uploads for driver mode
 
-A flutter plugin to enable you launch a bubble while putting your application to background and upon clicking the bubble brings your application back to foreground
+This plugin currently supports Android.
 
-## Getting Started
-### Add dependency
+## Install
 
 ```yaml
-    dependencies: 
-        bubble_head: ^0.0.4
+dependencies:
+  bubble_head: ^0.0.5
 ```
 
+## Android Setup
 
-### Add in android-manifest file (**../main/AndroidManifest.xml**)
+Update your app manifest at android/app/src/main/AndroidManifest.xml.
 
-If you are unsure on where to do this, you can reference the example project AndroidManifest.xml file [here](example/android/app/src/main/AndroidManifest.xml)
-
-
-Add `SYSTEM_ALERT_WINDOW` permission in manifest
-```xml
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-```
-
-NOTE: For best UX practices, you should request for `SYSTEM_ALERT_WINDOW` permission on your application launch (if permission `status` is not granted)
-To request for permission, we advise the use of this [package](https://pub.dev/packages/permission_handler)
-
-
-Add `intent-filter` in activity tag
+### 1. Add permissions
 
 ```xml
-    <intent-filter>
-        <action android:name="intent.bring.app.to.foreground" />
-        <category android:name="android.intent.category.DEFAULT" />
-    </intent-filter>
+<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+
+<!-- Required for location upload mode -->
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 ```
 
-Add `service` in application tag
+### 2. Add intent-filter to your main activity
+
 ```xml
-    <service
-        android:name="com.dsaved.bubblehead.bubble.BubbleHeadService"
-        android:enabled="true"
-        android:exported="false"/>
+<intent-filter>
+    <action android:name="intent.bring.app.to.foreground" />
+    <category android:name="android.intent.category.DEFAULT" />
+</intent-filter>
 ```
 
-### Note:  To set bubble icon, create `assets/images` folder path and add your png icon with name `icon.png` to the directory (ensure to import assets in your `pubspec.yaml` file)
+The plugin declares its foreground services in its own manifest, so you do not need to manually add service entries in your app manifest.
 
-**GIF illustration**
+### 3. Request runtime permissions before starting features
 
-[![](example/assets/images/bubble_head_example.gif)](example/assets/images/bubble_head_example.gif "Bubble-head example")
+Use permission_handler or your own permission flow.
 
-### Examples
-
-**To start bubble**
-[This puts your app in background and can be re-launched (brought to foreground) on tap of the bubble]
+Recommended order:
+1. Request locationWhenInUse.
+2. Request locationAlways.
+3. Request notification (Android 13+).
+4. Request systemAlertWindow before starting bubble overlay.
 
 ```dart
-    Bubble _bubble = new Bubble();
+import 'package:permission_handler/permission_handler.dart';
 
-    Future<void> startBubbleHead() async {
-    
-        try {
-            await _bubble.startBubbleHead();
-        } on PlatformException {
-            print('Failed to call startBubbleHead');
-        }
-    }
+Future<void> ensurePermissions() async {
+  await Permission.locationWhenInUse.request();
+  await Permission.locationAlways.request();
+  await Permission.notification.request();
+  await Permission.systemAlertWindow.request();
+}
 ```
 
-**To stop/close bubble**
+## Quick Start (Bubble Overlay)
 
 ```dart
-    Bubble _bubble = new Bubble();
+import 'package:bubble_head/bubble.dart';
 
-    Future<void> stopBubbleHead() async {
-    
-        try {
-            await _bubble.stopBubbleHead();
-        } on PlatformException {
-            print('Failed to call stopBubbleHead');
-        }
-    }
+final Bubble bubble = Bubble(
+  shouldBounce: true,
+  allowDragToClose: true,
+  showCloseButton: true,
+);
+
+Future<void> startBubble() async {
+  await bubble.startBubbleHead(
+    sendAppToBackground: true,
+    iconPath: 'assets/images/icon.png',
+  );
+}
+
+Future<void> stopBubble() async {
+  await bubble.stopBubbleHead();
+}
 ```
 
-You can prevent the default action of putting your application in background when starting `bubble_head` by setting `sendAppToBackground` parameter when starting bubble head (if you choose to use another means of sending your application to background)
+## Driver Mode (Background Location Uploads)
 
 ```dart
-    Bubble _bubble = new Bubble();
+import 'dart:async';
+import 'package:bubble_head/bubble.dart';
 
-    Future<void> startBubbleHead() async {
-    
-        try {
-            // this will only display the bubble-head without sending the application to background
-            await _bubble.startBubbleHead(sendAppToBackground: false);
-        } on PlatformException {
-            print('Failed to call startBubbleHead');
-        }
-    }
+final Bubble bubble = Bubble(showCloseButton: true);
+StreamSubscription<Map<String, dynamic>>? sub;
+
+Future<void> startDriverMode() async {
+  sub = bubble.locationUpdateEvents.listen((event) {
+    print('location event: $event');
+  });
+
+  await bubble.startLocationUpdates(
+    httpsUrl: 'https://api.example.com/driver/location',
+    interval: const Duration(seconds: 15),
+    headers: {'Authorization': 'Bearer ACCESS_TOKEN'},
+    metadata: {'driverId': 'drv_123', 'vehicleType': 'bike'},
+    maxQueueSize: 300,
+    initialBackoff: const Duration(seconds: 3),
+    maxBackoff: const Duration(minutes: 1),
+    authRefreshUrl: 'https://api.example.com/auth/refresh',
+    authRefreshHeaders: {'Authorization': 'Bearer REFRESH_TOKEN'},
+    authRefreshBody: {'deviceId': 'abc-123'},
+    authTokenResponseKey: 'accessToken',
+    authHeaderName: 'Authorization',
+    authHeaderPrefix: 'Bearer ',
+  );
+}
+
+Future<void> stopDriverMode() async {
+  await bubble.stopLocationUpdates();
+  await sub?.cancel();
+}
 ```
 
+### Upload Payload
 
-**Other parameters**
-(You can choose to tweak **optional** parameters when initializing bubble)
+Each upload is JSON with:
+- latitude
+- longitude
+- accuracy
+- speed
+- bearing
+- altitude
+- provider
+- timestamp
+- metadata (optional)
 
+### Reliability Features
+
+- Foreground service for background operation
+- Persistent queue of unsent location payloads
+- Exponential retry backoff
+- Optional token refresh on 401 or 403
+
+## API Reference
+
+### Bubble constructor
 
 ```dart
-    Bubble({
-        this.shouldBounce = true,
-        this.allowDragToClose = true,
-        this.showCloseButton = false,
-    });
-```
-```dart
-    Bubble().startBubbleHead(sendAppToBackground: true);
+Bubble({
+  bool shouldBounce = true,
+  bool allowDragToClose = true,
+  bool showCloseButton = false,
+  String? customIconPath,
+})
 ```
 
-**Parameter Definition**
-- shouldBounce - Defaults to `True`
-(Adds animation to bubble-head)
-- allowDragToClose - Defaults to `True`
-(Enables dragging bubble to bottom screen to exit)
-- showCloseButton - Defaults to `False`
-(Adds a close button icon to the bubble-head)
-- sendAppToBackground - Defaults to `True`
-(Sends application to background)
-  
-## [Buy me a Coffee](https://www.buymeacoffee.com/dsaved)
+### startBubbleHead
+
+```dart
+Future<void> startBubbleHead({
+  bool sendAppToBackground = true,
+  String? iconPath,
+})
+```
+
+### stopBubbleHead
+
+```dart
+Future<void> stopBubbleHead()
+```
+
+### startLocationUpdates
+
+```dart
+Future<void> startLocationUpdates({
+  required String httpsUrl,
+  Duration interval = const Duration(seconds: 15),
+  Map<String, String>? headers,
+  Map<String, dynamic>? metadata,
+  int maxQueueSize = 200,
+  Duration initialBackoff = const Duration(seconds: 3),
+  Duration maxBackoff = const Duration(seconds: 60),
+  String? authRefreshUrl,
+  Map<String, String>? authRefreshHeaders,
+  Map<String, dynamic>? authRefreshBody,
+  String authTokenResponseKey = 'accessToken',
+  String authHeaderName = 'Authorization',
+  String authHeaderPrefix = 'Bearer ',
+})
+```
+
+### stopLocationUpdates
+
+```dart
+Future<void> stopLocationUpdates()
+```
+
+### locationUpdateEvents
+
+```dart
+Stream<Map<String, dynamic>> get locationUpdateEvents
+```
+
+Event types currently emitted:
+- service_created
+- location_updates_started
+- location_enqueued
+- location_sent
+- send_failed
+- retry_scheduled
+- auth_token_refreshed
+- auth_refresh_failed
+- queue_trimmed
+- service_stopped
+- config_invalid
+- payload_build_failed
+- location_permission_error
+
+## Production Notes
+
+- The upload endpoint must be HTTPS.
+- Always request background location permission before starting location uploads.
+- Android may still kill apps in extreme cases, force stop, or OEM battery restrictions. Design server-side session recovery accordingly.
+- For best real-world reliability on driver apps, prompt users to disable battery optimizations for your app on aggressive OEM ROMs.
+
+## Example App
+
+See the full integration sample in example/lib/main.dart.
+
+## Support
+
+[Buy me a Coffee](https://www.buymeacoffee.com/dsaved)
 

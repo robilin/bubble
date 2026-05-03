@@ -1,3 +1,13 @@
+## 0.0.5
+* Added API 35 compatibility updates
+* Added foreground-service hardening for bubble reliability
+* Added Android background location upload feature
+* Added HTTPS upload configuration options (headers, metadata, interval)
+* Added resilient queue with retry backoff for location uploads
+* Added optional auth refresh flow for 401/403 upload responses
+* Added location update event stream for Flutter listeners
+* Improved README with full setup and integration guidance
+
 ## 0.0.1
 
 * Created and implemented startBubbleHead and closeBubbleHead usecases for bubble head package
