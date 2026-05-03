@@ -1,4 +1,4 @@
-# bubble_head
+# bubble_head_plus
 
 Android-first Flutter plugin for:
 - Floating chat-head style bubble overlay
@@ -11,7 +11,7 @@ This plugin currently supports Android.
 
 ```yaml
 dependencies:
-  bubble_head: ^0.0.5
+  bubble_head_plus: ^0.0.5
 ```
 
 ## Android Setup
@@ -65,7 +65,7 @@ Future<void> ensurePermissions() async {
 ## Quick Start (Bubble Overlay)
 
 ```dart
-import 'package:bubble_head/bubble_head.dart';
+import 'package:bubble_head_plus/bubble_head.dart';
 
 final Bubble bubble = Bubble(
   shouldBounce: true,
@@ -89,7 +89,7 @@ Future<void> stopBubble() async {
 
 ```dart
 import 'dart:async';
-import 'package:bubble_head/bubble_head.dart';
+import 'package:bubble_head_plus/bubble_head.dart';
 
 final Bubble bubble = Bubble(showCloseButton: true);
 StreamSubscription<Map<String, dynamic>>? sub;

@@ -1,4 +1,4 @@
-name: bubble_head
+name: bubble_head_plus
 description: A flutter plugin to enable you launch a bubble while putting your application to background and upon clicking the bubble brings your application back to foreground
 version: 0.0.5
 homepage: https://github.com/robilin/bubble
