@@ -65,7 +65,7 @@ Future<void> ensurePermissions() async {
 ## Quick Start (Bubble Overlay)
 
 ```dart
-import 'package:bubble_head/bubble.dart';
+import 'package:bubble_head/bubble_head.dart';
 
 final Bubble bubble = Bubble(
   shouldBounce: true,
@@ -89,7 +89,7 @@ Future<void> stopBubble() async {
 
 ```dart
 import 'dart:async';
-import 'package:bubble_head/bubble.dart';
+import 'package:bubble_head/bubble_head.dart';
 
 final Bubble bubble = Bubble(showCloseButton: true);
 StreamSubscription<Map<String, dynamic>>? sub;

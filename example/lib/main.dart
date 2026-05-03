@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:bubble_head/bubble.dart';
+import 'package:bubble_head/bubble_head.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
