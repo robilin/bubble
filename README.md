@@ -230,5 +230,5 @@ See the full integration sample in example/lib/main.dart.
 
 ## Support
 
-[Buy me a Coffee](https://www.buymeacoffee.com/dsaved)
+If this package helps you, consider supporting via PayPal: [robilin2@yahoo.com](https://paypal.me/robilin2)
 
