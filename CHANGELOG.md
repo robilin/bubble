@@ -1,3 +1,8 @@
+## 0.0.6
+* Renamed package to bubble_head_plus
+* Added repository field to pubspec.yaml
+* Fixed pub.dev repository URL validation
+
 ## 0.0.5
 * Added API 35 compatibility updates
 * Added foreground-service hardening for bubble reliability
