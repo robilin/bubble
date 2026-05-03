@@ -103,7 +103,15 @@ Future<void> startDriverMode() async {
     httpsUrl: 'https://api.example.com/driver/location',
     interval: const Duration(seconds: 15),
     headers: {'Authorization': 'Bearer ACCESS_TOKEN'},
-    metadata: {'driverId': 'drv_123', 'vehicleType': 'bike'},
+    metadata: {
+      'driverId': 'drv_123',
+      'vehicleType': 'bike',
+      'region': 'nairobi',
+      'shiftId': 'shift_456',
+      'priority': 1,
+      'isVerified': true,
+      // add as many key/value pairs as you need
+    },
     maxQueueSize: 300,
     initialBackoff: const Duration(seconds: 3),
     maxBackoff: const Duration(minutes: 1),
@@ -124,16 +132,40 @@ Future<void> stopDriverMode() async {
 
 ### Upload Payload
 
-Each upload is JSON with:
-- latitude
-- longitude
-- accuracy
-- speed
-- bearing
-- altitude
-- provider
-- timestamp
-- metadata (optional)
+Each upload is a JSON object posted to your `httpsUrl`:
+
+```json
+{
+  "latitude": -1.286389,
+  "longitude": 36.817223,
+  "accuracy": 5.0,
+  "speed": 0.0,
+  "bearing": 0.0,
+  "altitude": 1661.0,
+  "provider": "gps",
+  "timestamp": 1746310000000,
+  "metadata": {
+    "driverId": "drv_123",
+    "vehicleType": "bike",
+    "region": "nairobi",
+    "shiftId": "shift_456",
+    "priority": 1,
+    "isVerified": true
+  }
+}
+```
+
+#### Metadata
+
+The `metadata` field is a free-form `Map<String, dynamic>`. You can pass **any number of key/value pairs** and the plugin will include them all in every upload. Supported value types are:
+
+- `String`
+- `int` / `double`
+- `bool`
+- Nested `Map<String, dynamic>`
+- `List`
+
+If no metadata is provided the `"metadata"` key is omitted from the payload entirely.
 
 ### Reliability Features
 

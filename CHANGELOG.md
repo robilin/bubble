@@ -1,3 +1,6 @@
+## 0.0.7
+* Improved README: expanded metadata documentation with full JSON payload example, supported value types, and multi-field usage guidance
+
 ## 0.0.6
 * Renamed package to bubble_head_plus
 * Added repository field to pubspec.yaml
