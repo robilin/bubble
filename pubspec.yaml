@@ -1,5 +1,5 @@
 name: bubble_head_plus
-description: A flutter plugin to enable you launch a bubble while putting your application to background and upon clicking the bubble brings your application back to foreground
+description: A Flutter plugin for Android that provides a floating bubble overlay, background location tracking with periodic HTTPS uploads, retry queue, auth token refresh, and foreground service resilience for ride and delivery apps.
 version: 0.0.6
 homepage: https://github.com/robilin/bubble
 repository: https://github.com/robilin/bubble
