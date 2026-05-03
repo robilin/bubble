@@ -228,7 +228,3 @@ Event types currently emitted:
 
 See the full integration sample in example/lib/main.dart.
 
-## Support
-
-If this package helps you, consider supporting via PayPal: [robilin2@yahoo.com](https://paypal.me/robilin2)
-
