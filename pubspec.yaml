@@ -1,6 +1,6 @@
 name: bubble_head_plus
-description: A Flutter plugin for Android that provides a floating bubble overlay, background location tracking with periodic HTTPS uploads, retry queue, auth token refresh, and foreground service resilience for ride and delivery apps.
-version: 0.0.7
+description: Flutter Android plugin for floating bubbles, background location updates, and reliable HTTPS event uploads.
+version: 0.0.8
 homepage: https://github.com/robilin/bubble
 repository: https://github.com/robilin/bubble
 
