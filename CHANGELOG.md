@@ -1,3 +1,6 @@
+## 0.0.8
+* Shortened pubspec description to satisfy pub.dev package metadata length guidance
+
 ## 0.0.7
 * Improved README: expanded metadata documentation with full JSON payload example, supported value types, and multi-field usage guidance
 
