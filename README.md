@@ -1,9 +1,9 @@
 # bubble_head_plus
 
 Android-first Flutter plugin for:
-- Floating chat-head style bubble overlay
+- A Truecaller-like floating bubble experience over other apps
 - Bringing your app to foreground when the bubble is tapped
-- Optional background location uploads for driver mode
+- Callback-style location update events plus optional background location uploads for driver mode
 
 This plugin currently supports Android.
 
@@ -11,7 +11,7 @@ This plugin currently supports Android.
 
 ```yaml
 dependencies:
-  bubble_head_plus: ^0.0.5
+  bubble_head_plus: ^0.0.9
 ```
 
 ## Android Setup
@@ -84,6 +84,64 @@ Future<void> stopBubble() async {
   await bubble.stopBubbleHead();
 }
 ```
+
+## Quick Start (Floating Widget Overlay)
+
+```dart
+import 'package:bubble_head_plus/bubble_head.dart';
+
+final Bubble bubble = Bubble(
+  shouldBounce: true,
+  allowDragToClose: true,
+  showCloseButton: true,
+);
+
+Future<void> startBubbleWidget() async {
+  await bubble.startBubbleWidget(
+    sendAppToBackground: true,
+    template: BubbleWidgetTemplate.large,
+    widgetData: {
+      'title': 'Driver Status',
+      'subtitle': 'Active deliveries',
+      'value': '3',
+      'badge': 'LIVE',
+    },
+  );
+}
+
+Future<void> updateBubbleWidget() async {
+  await bubble.updateBubbleWidgetData({
+    'value': '4',
+    'subtitle': 'New order assigned',
+  }, template: BubbleWidgetTemplate.small);
+}
+
+Future<void> stopBubbleWidget() async {
+  await bubble.stopBubbleWidget();
+}
+```
+
+### Widget Data Keys
+
+Supported keys for `widgetData`:
+- `title`: Main title text
+- `subtitle`: Secondary description text
+- `value`: Primary highlighted value
+- `badge`: Optional tag text; hidden when empty
+
+All values are converted to strings on Android before rendering.
+
+### Template Behavior
+
+- `BubbleWidgetTemplate.small`: compact card, smaller typography, subtitle hidden, badge hidden
+- `BubbleWidgetTemplate.medium`: default card size and typography
+- `BubbleWidgetTemplate.large`: wider card, larger typography, up to 3 subtitle lines
+
+### Backward Compatibility
+
+- Existing `startBubbleHead` and `stopBubbleHead` behavior is unchanged.
+- Widget mode is opt-in via `startBubbleWidget`.
+- You can keep using icon mode and location mode exactly as before.
 
 ## Driver Mode (Background Location Uploads)
 
@@ -196,11 +254,64 @@ Future<void> startBubbleHead({
 })
 ```
 
+### startBubbleWidget
+
+```dart
+Future<void> startBubbleWidget({
+  bool sendAppToBackground = true,
+  Map<String, dynamic>? widgetData,
+  String template = BubbleWidgetTemplate.medium,
+})
+```
+
+Supported Android keys in `widgetData`: `title`, `subtitle`, `value`, `badge`.
+
+Supported templates:
+- `BubbleWidgetTemplate.small`
+- `BubbleWidgetTemplate.medium`
+- `BubbleWidgetTemplate.large`
+
+### BubbleWidgetTemplate
+
+```dart
+class BubbleWidgetTemplate {
+  static const String small = 'small';
+  static const String medium = 'medium';
+  static const String large = 'large';
+}
+```
+
+### updateBubbleWidgetData
+
+```dart
+Future<void> updateBubbleWidgetData(
+  Map<String, dynamic> widgetData, {
+  String? template,
+})
+```
+
 ### stopBubbleHead
 
 ```dart
 Future<void> stopBubbleHead()
 ```
+
+### stopBubbleWidget
+
+```dart
+Future<void> stopBubbleWidget()
+```
+
+## Testing Checklist
+
+Before publishing, validate these scenarios on a real Android device:
+1. Overlay permission denied: plugin returns a clear error.
+2. `startBubbleHead`: icon bubble appears and drag/snap still works.
+3. `startBubbleWidget` with `small`, `medium`, and `large` templates.
+4. Runtime updates via `updateBubbleWidgetData` including template switching.
+5. Tap overlay behavior still returns app to foreground.
+6. Long-press drag to close still works in icon and widget modes.
+7. `startLocationUpdates` behavior remains unchanged.
 
 ### startLocationUpdates
 

@@ -1,0 +1,1 @@
+/Users/mac/StudioProjects/bubble/example/build/app/intermediates/cxx/Debug/601c2144/obj/armeabi-v7a

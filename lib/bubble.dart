@@ -3,6 +3,12 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+class BubbleWidgetTemplate {
+  static const String small = 'small';
+  static const String medium = 'medium';
+  static const String large = 'large';
+}
+
 class Bubble {
   static const MethodChannel _channel =
       const MethodChannel('com.dsaved.bubble.head');
@@ -50,6 +56,48 @@ class Bubble {
     }
   }
 
+  /// Puts app in background and shows a floating widget overlay.
+  ///
+  /// Supported keys inside [widgetData] on Android are:
+  /// - title
+  /// - subtitle
+  /// - value
+  /// - badge
+  ///
+  /// [template] controls size and density of the widget card.
+  /// Use [BubbleWidgetTemplate.small], [BubbleWidgetTemplate.medium],
+  /// or [BubbleWidgetTemplate.large].
+  Future<void> startBubbleWidget({
+    bool sendAppToBackground = true,
+    Map<String, dynamic>? widgetData,
+    String template = BubbleWidgetTemplate.medium,
+  }) async {
+    try {
+      await _channel.invokeMethod('startBubbleWidget', {
+        'bounce': shouldBounce,
+        'showClose': showCloseButton,
+        'dragToClose': allowDragToClose,
+        'sendAppToBackground': sendAppToBackground,
+        'widgetData': widgetData ?? <String, dynamic>{},
+        'template': template,
+      });
+    } catch (e) {
+      print('❌ Error starting bubble widget: $e');
+      rethrow;
+    }
+  }
+
+  /// Updates dynamic content of the active floating widget overlay.
+  Future<void> updateBubbleWidgetData(
+    Map<String, dynamic> widgetData, {
+    String? template,
+  }) async {
+    await _channel.invokeMethod('updateBubbleWidgetData', {
+      'widgetData': widgetData,
+      'template': template,
+    });
+  }
+
   /// closes floaty-bubble head
   Future<void> stopBubbleHead() async {
     try {
@@ -57,6 +105,16 @@ class Bubble {
       print('✅ Bubble stopped');
     } catch (e) {
       print('❌ Error stopping bubble: $e');
+      rethrow;
+    }
+  }
+
+  /// Alias for stopping the floating widget overlay.
+  Future<void> stopBubbleWidget() async {
+    try {
+      await _channel.invokeMethod('stopBubbleWidget');
+    } catch (e) {
+      print('❌ Error stopping bubble widget: $e');
       rethrow;
     }
   }

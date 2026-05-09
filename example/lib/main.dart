@@ -21,11 +21,23 @@ class _MyAppState extends State<MyApp> {
   final TextEditingController _urlController = TextEditingController(
     text: 'https://api.example.com/driver/location',
   );
+  final TextEditingController _widgetTitleController = TextEditingController(
+    text: 'Driver Status',
+  );
+  final TextEditingController _widgetSubtitleController = TextEditingController(
+    text: 'Active deliveries',
+  );
+  final TextEditingController _widgetBadgeController = TextEditingController(
+    text: 'LIVE',
+  );
   StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
   final List<String> _logs = <String>[];
 
   bool _bubbleRunning = false;
+  bool _widgetRunning = false;
   bool _trackingRunning = false;
+  String _selectedTemplate = BubbleWidgetTemplate.medium;
+  int _widgetValue = 3;
 
   @override
   void initState() {
@@ -39,6 +51,9 @@ class _MyAppState extends State<MyApp> {
   void dispose() {
     _eventsSubscription?.cancel();
     _urlController.dispose();
+    _widgetTitleController.dispose();
+    _widgetSubtitleController.dispose();
+    _widgetBadgeController.dispose();
     super.dispose();
   }
 
@@ -52,7 +67,26 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  Future<bool> _ensurePermissions() async {
+  Future<bool> _ensureOverlayPermission() async {
+    final Map<Permission, PermissionStatus> results = await <Permission>[
+      Permission.systemAlertWindow,
+      Permission.notification,
+    ].request();
+
+    final bool overlayOk =
+        results[Permission.systemAlertWindow]?.isGranted == true;
+    final bool notificationOk =
+        results[Permission.notification]?.isGranted == true ||
+            results[Permission.notification]?.isDenied == true;
+    final bool granted = overlayOk && notificationOk;
+
+    if (!granted) {
+      _addLog('overlay permission check failed: $results');
+    }
+    return granted;
+  }
+
+  Future<bool> _ensureDriverPermissions() async {
     final Map<Permission, PermissionStatus> results = await <Permission>[
       Permission.locationWhenInUse,
       Permission.locationAlways,
@@ -82,7 +116,7 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _startDriverMode() async {
     try {
-      final bool permissionsGranted = await _ensurePermissions();
+      final bool permissionsGranted = await _ensureDriverPermissions();
       if (!permissionsGranted) {
         _addLog('cannot start: required permissions are missing');
         return;
@@ -144,6 +178,103 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  Future<void> _startIconBubble() async {
+    try {
+      final bool permissionsGranted = await _ensureOverlayPermission();
+      if (!permissionsGranted) {
+        _addLog('cannot start icon bubble: overlay permission missing');
+        return;
+      }
+
+      await _bubble.startBubbleHead(sendAppToBackground: false);
+      if (!mounted) return;
+      setState(() {
+        _bubbleRunning = true;
+        _widgetRunning = false;
+      });
+      _addLog('icon bubble started');
+    } on PlatformException catch (e) {
+      _addLog('start icon bubble failed: ${e.message}');
+    } catch (e) {
+      _addLog('start icon bubble failed: $e');
+    }
+  }
+
+  Future<void> _startWidgetBubble() async {
+    try {
+      final bool permissionsGranted = await _ensureOverlayPermission();
+      if (!permissionsGranted) {
+        _addLog('cannot start widget bubble: overlay permission missing');
+        return;
+      }
+
+      await _bubble.startBubbleWidget(
+        sendAppToBackground: false,
+        template: _selectedTemplate,
+        widgetData: <String, dynamic>{
+          'title': _widgetTitleController.text.trim(),
+          'subtitle': _widgetSubtitleController.text.trim(),
+          'value': _widgetValue,
+          'badge': _widgetBadgeController.text.trim(),
+        },
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _bubbleRunning = false;
+        _widgetRunning = true;
+      });
+      _addLog('widget bubble started ($_selectedTemplate)');
+    } on PlatformException catch (e) {
+      _addLog('start widget bubble failed: ${e.message}');
+    } catch (e) {
+      _addLog('start widget bubble failed: $e');
+    }
+  }
+
+  Future<void> _updateWidgetBubble({bool incrementValue = false}) async {
+    try {
+      if (incrementValue) {
+        setState(() {
+          _widgetValue += 1;
+        });
+      }
+
+      await _bubble.updateBubbleWidgetData(
+        <String, dynamic>{
+          'title': _widgetTitleController.text.trim(),
+          'subtitle': _widgetSubtitleController.text.trim(),
+          'value': _widgetValue,
+          'badge': _widgetBadgeController.text.trim(),
+        },
+        template: _selectedTemplate,
+      );
+
+      _addLog(
+          'widget bubble updated (value=$_widgetValue, template=$_selectedTemplate)');
+    } on PlatformException catch (e) {
+      _addLog('update widget bubble failed: ${e.message}');
+    } catch (e) {
+      _addLog('update widget bubble failed: $e');
+    }
+  }
+
+  Future<void> _stopOverlayOnly() async {
+    try {
+      await _bubble.stopBubbleWidget();
+      if (!mounted) return;
+      setState(() {
+        _bubbleRunning = false;
+        _widgetRunning = false;
+      });
+      _addLog('overlay stopped');
+    } on PlatformException catch (e) {
+      _addLog('stop overlay failed: ${e.message}');
+    } catch (e) {
+      _addLog('stop overlay failed: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -170,6 +301,100 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               const SizedBox(height: 12),
+              const Text(
+                'Overlay Playground',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _startIconBubble,
+                      child: const Text('Start Icon Bubble'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _startWidgetBubble,
+                      child: const Text('Start Widget Bubble'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _selectedTemplate,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Widget Template',
+                ),
+                items: const <DropdownMenuItem<String>>[
+                  DropdownMenuItem<String>(
+                    value: BubbleWidgetTemplate.small,
+                    child: Text('Small'),
+                  ),
+                  DropdownMenuItem<String>(
+                    value: BubbleWidgetTemplate.medium,
+                    child: Text('Medium'),
+                  ),
+                  DropdownMenuItem<String>(
+                    value: BubbleWidgetTemplate.large,
+                    child: Text('Large'),
+                  ),
+                ],
+                onChanged: (String? value) {
+                  if (value == null) return;
+                  setState(() {
+                    _selectedTemplate = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _widgetTitleController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Widget Title',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _widgetSubtitleController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Widget Subtitle',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _widgetBadgeController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Widget Badge',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: () =>
+                          _updateWidgetBubble(incrementValue: true),
+                      child: const Text('Update Widget (+1)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: _stopOverlayOnly,
+                      child: const Text('Stop Overlay'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: <Widget>[
                   Expanded(
@@ -194,7 +419,10 @@ class _MyAppState extends State<MyApp> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text('Bubble: ${_bubbleRunning ? 'ON' : 'OFF'}'),
+                      Text('Icon bubble: ${_bubbleRunning ? 'ON' : 'OFF'}'),
+                      Text('Widget bubble: ${_widgetRunning ? 'ON' : 'OFF'}'),
+                      Text('Template: $_selectedTemplate'),
+                      Text('Widget value: $_widgetValue'),
                       Text('Tracking: ${_trackingRunning ? 'ON' : 'OFF'}'),
                     ],
                   ),

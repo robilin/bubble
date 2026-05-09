@@ -1,3 +1,10 @@
+## 0.0.9
+* Added `startBubbleWidget` for floating card-style overlays with dynamic content
+* Added `updateBubbleWidgetData` for live widget updates while overlay is active
+* Added widget templates: `small`, `medium`, `large`
+* Added `stopBubbleWidget` alias while preserving backward compatibility with `startBubbleHead`
+* Expanded README with widget overlay setup, template behavior, and testing guidance
+
 ## 0.0.8
 * Shortened pubspec description to satisfy pub.dev package metadata length guidance
 

@@ -1,0 +1,2 @@
+/Users/mac/StudioProjects/bubble/example/android/app/.cxx/Debug/601c2144/arm64-v8a/CMakeFiles/edit_cache.dir
+/Users/mac/StudioProjects/bubble/example/android/app/.cxx/Debug/601c2144/arm64-v8a/CMakeFiles/rebuild_cache.dir

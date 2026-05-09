@@ -21,19 +21,31 @@ import android.os.Build;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Base64;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.WindowMetrics;
 import android.widget.ImageView;
+import android.widget.TextView;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class BubbleHeadService extends Service implements View.OnClickListener {
     private static final String CHANNEL_ID = "bubble_head_service_channel";
     private static final int NOTIFICATION_ID = 1001;
+    private static final String MODE_ICON = "icon";
+    private static final String MODE_WIDGET = "widget";
+    private static final String TEMPLATE_SMALL = "small";
+    private static final String TEMPLATE_MEDIUM = "medium";
+    private static final String TEMPLATE_LARGE = "large";
 
     private WindowManager mWindowManager;
     private View mFloatingWidgetView;
@@ -42,6 +54,10 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     private View removeFloatingWidgetView;
     private static boolean showCloseButton = false, _bounce = true, _dragToClose = true, _sendAppToBackground = true;
     private boolean _continueToSnap = false;
+    private static String overlayMode = MODE_ICON;
+    private static HashMap<String, Object> widgetData = new HashMap<>();
+    private static String widgetTemplate = TEMPLATE_MEDIUM;
+    private static BubbleHeadService activeInstance;
 
     private int x_init_cord, y_init_cord, x_init_margin, y_init_margin;
     static Bitmap _image;
@@ -65,9 +81,55 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         _sendAppToBackground = sendAppToBackground;
     }
 
+    public static void setWidgetData(HashMap<String, Object> data) {
+        widgetData = data == null ? new HashMap<String, Object>() : new HashMap<>(data);
+    }
+
+    public static void setWidgetTemplate(String template) {
+        widgetTemplate = normalizeTemplate(template);
+    }
+
+    public static void updateWidgetData(HashMap<String, Object> data, String template) {
+        if (data == null) {
+            return;
+        }
+        if (template != null) {
+            setWidgetTemplate(template);
+        }
+        widgetData.putAll(data);
+        if (activeInstance != null) {
+            activeInstance.refreshWidgetDataOnMainThread();
+        }
+    }
+
     public static void startService(Context activity, String image) {
-        byte[] decodedBytes = Base64.decode(image, Base64.DEFAULT);
-        _image = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+        overlayMode = MODE_ICON;
+        widgetTemplate = TEMPLATE_MEDIUM;
+        widgetData.clear();
+        if (image != null) {
+            byte[] decodedBytes = Base64.decode(image, Base64.DEFAULT);
+            _image = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+        } else {
+            _image = null;
+        }
+
+        // send application to background if this is true
+        if (_sendAppToBackground) {
+            Intent i = new Intent();
+            i.setAction(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_HOME);
+            activity.startActivity(i);
+        }
+
+        Intent intent = new Intent(activity, BubbleHeadService.class);
+        activity.startService(intent);
+    }
+
+    public static void startWidgetService(Context activity, HashMap<String, Object> data, String template) {
+        overlayMode = MODE_WIDGET;
+        _image = null;
+        setWidgetData(data);
+        setWidgetTemplate(template);
 
         // send application to background if this is true
         if (_sendAppToBackground) {
@@ -179,6 +241,7 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         // Promote to foreground immediately so Android won't kill us before onStartCommand fires
         startForegroundCompat();
 
@@ -251,9 +314,13 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         // Add the view to the window
         mWindowManager.addView(mFloatingWidgetView, params);
 
-        //set image to chatHead
+        // Set image for icon mode.
         ImageView chatHeadImage = mFloatingWidgetView.findViewById(R.id.chat_head_profile_iv);
-        chatHeadImage.setImageBitmap(_image);
+        if (_image != null) {
+            chatHeadImage.setImageBitmap(_image);
+        }
+
+        applyOverlayMode();
 
         // find id of close image button
         ImageView closeBubbleHead = mFloatingWidgetView.findViewById(R.id.close_bubble_head);
@@ -263,6 +330,125 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         }
 
         implementTouchListenerToFloatingWidgetView();
+    }
+
+    private void applyOverlayMode() {
+        if (mFloatingWidgetView == null) {
+            return;
+        }
+        View iconView = mFloatingWidgetView.findViewById(R.id.chat_head_profile_iv);
+        View widgetContainer = mFloatingWidgetView.findViewById(R.id.widget_container);
+        boolean isWidgetMode = MODE_WIDGET.equals(overlayMode);
+
+        if (iconView != null) {
+            iconView.setVisibility(isWidgetMode ? View.GONE : View.VISIBLE);
+        }
+        if (widgetContainer != null) {
+            widgetContainer.setVisibility(isWidgetMode ? View.VISIBLE : View.GONE);
+        }
+
+        if (isWidgetMode) {
+            applyWidgetTemplate();
+            applyWidgetData();
+        }
+    }
+
+    private void refreshWidgetDataOnMainThread() {
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        mainHandler.post(this::applyWidgetData);
+    }
+
+    private void applyWidgetData() {
+        if (mFloatingWidgetView == null || !MODE_WIDGET.equals(overlayMode)) {
+            return;
+        }
+
+        TextView titleView = mFloatingWidgetView.findViewById(R.id.widget_title);
+        TextView subtitleView = mFloatingWidgetView.findViewById(R.id.widget_subtitle);
+        TextView valueView = mFloatingWidgetView.findViewById(R.id.widget_value);
+        TextView badgeView = mFloatingWidgetView.findViewById(R.id.widget_badge);
+
+        if (titleView != null) {
+            titleView.setText(stringValue(widgetData, "title", "Widget"));
+        }
+        if (subtitleView != null) {
+            subtitleView.setText(stringValue(widgetData, "subtitle", "Dynamic overlay data"));
+            subtitleView.setVisibility(TEMPLATE_SMALL.equals(widgetTemplate) ? View.GONE : View.VISIBLE);
+        }
+        if (valueView != null) {
+            valueView.setText(stringValue(widgetData, "value", "0"));
+        }
+        if (badgeView != null) {
+            String badgeText = stringValue(widgetData, "badge", "");
+            if (badgeText.isEmpty() || TEMPLATE_SMALL.equals(widgetTemplate)) {
+                badgeView.setVisibility(View.GONE);
+            } else {
+                badgeView.setVisibility(View.VISIBLE);
+                badgeView.setText(badgeText);
+            }
+        }
+    }
+
+    private void applyWidgetTemplate() {
+        if (mFloatingWidgetView == null || !MODE_WIDGET.equals(overlayMode)) {
+            return;
+        }
+
+        View widgetContainer = mFloatingWidgetView.findViewById(R.id.widget_container);
+        TextView titleView = mFloatingWidgetView.findViewById(R.id.widget_title);
+        TextView subtitleView = mFloatingWidgetView.findViewById(R.id.widget_subtitle);
+        TextView valueView = mFloatingWidgetView.findViewById(R.id.widget_value);
+
+        if (widgetContainer == null || titleView == null || subtitleView == null || valueView == null) {
+            return;
+        }
+
+        int widthDp = 220;
+        float titleSp = 14f;
+        float valueSp = 20f;
+        int subtitleLines = 2;
+
+        if (TEMPLATE_SMALL.equals(widgetTemplate)) {
+            widthDp = 170;
+            titleSp = 13f;
+            valueSp = 17f;
+            subtitleLines = 1;
+        } else if (TEMPLATE_LARGE.equals(widgetTemplate)) {
+            widthDp = 280;
+            titleSp = 16f;
+            valueSp = 24f;
+            subtitleLines = 3;
+        }
+
+        ViewGroup.LayoutParams params = widgetContainer.getLayoutParams();
+        if (params != null) {
+            params.width = dpToPx(widthDp);
+            widgetContainer.setLayoutParams(params);
+        }
+
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, titleSp);
+        valueView.setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp);
+        subtitleView.setMaxLines(subtitleLines);
+    }
+
+    private static String normalizeTemplate(String template) {
+        if (TEMPLATE_SMALL.equals(template) || TEMPLATE_LARGE.equals(template)) {
+            return template;
+        }
+        return TEMPLATE_MEDIUM;
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private String stringValue(Map<String, Object> source, String key, String fallback) {
+        Object value = source.get(key);
+        if (value == null) {
+            return fallback;
+        }
+        String asString = String.valueOf(value);
+        return asString.isEmpty() ? fallback : asString;
     }
 
     private void getWindowManagerDefaultDisplay() {
@@ -547,6 +733,7 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        activeInstance = null;
         if (mFloatingWidgetView != null) {
             mWindowManager.removeView(mFloatingWidgetView);
         }

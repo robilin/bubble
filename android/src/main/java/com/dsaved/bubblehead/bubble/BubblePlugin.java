@@ -60,7 +60,14 @@ public class BubblePlugin implements FlutterPlugin, MethodCallHandler, ActivityA
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
         if (call.method.equals("startBubbleHead")) {
             startBubbleHead(result, call);
+        } else if (call.method.equals("startBubbleWidget")) {
+            startBubbleWidget(result, call);
+        } else if (call.method.equals("updateBubbleWidgetData")) {
+            updateBubbleWidgetData(result, call);
         } else if (call.method.equals("stopBubbleHead")) {
+            BubbleHeadService.stopService(getValidContext());
+            result.success(true);
+        } else if (call.method.equals("stopBubbleWidget")) {
             BubbleHeadService.stopService(getValidContext());
             result.success(true);
         } else if (call.method.equals("startLocationUpdates")) {
@@ -100,6 +107,55 @@ public class BubblePlugin implements FlutterPlugin, MethodCallHandler, ActivityA
             //Permission is not available
             result.error("EPERMNOTGRANTED", "permission not available", "Please request permission for: android.permission.SYSTEM_ALERT_WINDOW. with out this permission you cannot launch the bubble head.");
         }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public void startBubbleWidget(@NonNull Result result, MethodCall call) {
+        Context context = getValidContext();
+        if (context == null) {
+            result.error("ENOCTX", "No context available", "Attach plugin to an activity before starting the bubble widget.");
+            return;
+        }
+
+        if (Settings.canDrawOverlays(context)) {
+            boolean bounce = call.argument("bounce");
+            BubbleHeadService.bounce(bounce);
+
+            boolean showClose = call.argument("showClose");
+            BubbleHeadService.shouldShowCloseButton(showClose);
+
+            boolean dragToClose = call.argument("dragToClose");
+            BubbleHeadService.dragToClose(dragToClose);
+
+            boolean sendAppToBackground = call.argument("sendAppToBackground");
+            BubbleHeadService.sendAppToBackground(sendAppToBackground);
+
+            @SuppressWarnings("unchecked")
+            HashMap<String, Object> data = call.argument("widgetData");
+            if (data == null) {
+                data = new HashMap<>();
+            }
+
+            String template = call.argument("template");
+
+            BubbleHeadService.startWidgetService(context, data, template);
+            result.success(true);
+        } else {
+            result.error("EPERMNOTGRANTED", "permission not available", "Please request permission for: android.permission.SYSTEM_ALERT_WINDOW. with out this permission you cannot launch the bubble widget.");
+        }
+    }
+
+    public void updateBubbleWidgetData(@NonNull Result result, MethodCall call) {
+        @SuppressWarnings("unchecked")
+        HashMap<String, Object> data = call.argument("widgetData");
+        if (data == null) {
+            result.error("EBADARGS", "widgetData is required", "Provide widgetData as a Map<String, dynamic>.");
+            return;
+        }
+
+        String template = call.argument("template");
+        BubbleHeadService.updateWidgetData(data, template);
+        result.success(true);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)

@@ -1,6 +1,6 @@
 name: bubble_head_plus
-description: Flutter Android plugin for floating bubbles, background location updates, and reliable HTTPS event uploads.
-version: 0.0.8
+description: Flutter Android plugin for a Truecaller-like floating bubble experience over other apps, with callback-style location events.
+version: 0.0.9
 homepage: https://github.com/robilin/bubble
 repository: https://github.com/robilin/bubble
 
