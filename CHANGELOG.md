@@ -1,3 +1,13 @@
+## Unreleased
+* Add native runtime status, hidden overlay startup, visibility updates and foreground launch APIs
+* Start overlay services before optionally moving the host app to the background
+* Guard service startup and surface permission/state failures as Flutter platform errors
+* Emit sampled GPS coordinates and heading at a minimum two-second interval
+* Clear credentials and queued fixes on explicit stop, fence old workers, and reject stale uploads
+* Add short-lived native booking alerts with notification fallback; no automatic acceptance
+* Keep UI event subscriptions intact when a headless Flutter engine detaches
+* Add runtime API tests and document Android lifecycle limitations
+
 ## 0.0.9
 * Added `startBubbleWidget` for floating card-style overlays with dynamic content
 * Added `updateBubbleWidgetData` for live widget updates while overlay is active

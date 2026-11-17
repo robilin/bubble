@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
@@ -76,6 +77,69 @@ public class LocationUpdatesService extends Service {
     private static final String PREFS_KEY_REFRESH_TOKEN_KEY = "cfg.refresh.token.key";
     private static final String PREFS_KEY_AUTH_HEADER_NAME = "cfg.auth.header.name";
     private static final String PREFS_KEY_AUTH_HEADER_PREFIX = "cfg.auth.header.prefix";
+    private static final String PREFS_ENABLED = "session.enabled";
+    private static final String EXTRA_CONFIG = "session.config";
+    private static volatile LocationUpdatesService instance;
+    private volatile boolean active;
+    private volatile long generation;
+    private volatile HttpsURLConnection activeConnection;
+    private volatile long lastSentAt;
+    private Location lastQueuedFix;
+    private long lastQueuedAt;
+
+    public static void start(Context context, JSONObject config) {
+        String endpoint = config.optString("url", "");
+        try {
+            URL parsed = new URL(endpoint);
+            if (!"https".equals(parsed.getProtocol()) || parsed.getHost().isEmpty()) {
+                throw new IllegalArgumentException("Only HTTPS endpoints are allowed");
+            }
+        } catch (java.net.MalformedURLException badUrl) {
+            throw new IllegalArgumentException("A valid HTTPS endpoint is required");
+        }
+        LocationUpdatesService current = instance;
+        if (current != null) current.invalidateSession();
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .clear().putBoolean(PREFS_ENABLED, true).putString(EXTRA_CONFIG, config.toString()).apply();
+        Intent intent = new Intent(context, LocationUpdatesService.class)
+                .putExtra(EXTRA_CONFIG, config.toString());
+        try {
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent);
+            else context.startService(intent);
+        } catch (RuntimeException failure) {
+            context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+            throw failure;
+        }
+    }
+
+    public static void stop(Context context) {
+        // Fence workers and erase account credentials before requesting teardown.
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+        LocationUpdatesService current = instance;
+        if (current != null) current.invalidateSession();
+        context.stopService(new Intent(context, LocationUpdatesService.class));
+    }
+
+    public static Map<String, Object> getStatus(Context context) {
+        HashMap<String, Object> state = new HashMap<>();
+        LocationUpdatesService current = instance;
+        state.put("locationRunning", current != null && current.active
+                && context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREFS_ENABLED, false));
+        state.put("queued", current == null ? 0 : current.queueSize());
+        state.put("lastSentAtMs", current == null ? 0L : current.lastSentAt);
+        return state;
+    }
+
+    private void invalidateSession() {
+        active = false;
+        lastQueuedFix = null;
+        lastQueuedAt = 0;
+        generation++;
+        clearRetrySchedule();
+        HttpsURLConnection connection = activeConnection;
+        if (connection != null) connection.disconnect();
+        synchronized (queueLock) { pendingPayloads.clear(); }
+    }
 
     private long intervalMs = 15000L;
     private String endpointUrl;
@@ -120,6 +184,7 @@ public class LocationUpdatesService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         networkExecutor = Executors.newSingleThreadExecutor();
         loadConfig();
@@ -130,6 +195,16 @@ public class LocationUpdatesService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (!getPrefs().getBoolean(PREFS_ENABLED, false)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        String config = intent == null ? getPrefs().getString(EXTRA_CONFIG, null)
+                : intent.getStringExtra(EXTRA_CONFIG);
+        if (config != null) {
+            try { applySerializedConfig(new JSONObject(config)); }
+            catch (Exception invalid) { stop(this); return START_NOT_STICKY; }
+        }
         applyConfigFromIntent(intent);
         if (endpointUrl == null || !endpointUrl.startsWith("https://")) {
             LocationUpdatesEventBridge.emit("config_invalid", mapOf("message", "Missing or invalid HTTPS endpoint"));
@@ -140,6 +215,7 @@ public class LocationUpdatesService extends Service {
         persistConfig();
         trimQueueIfNeeded();
         startForegroundCompat();
+        active = true;
         startLocationUpdates();
         flushQueueAsync("start_command");
         return START_STICKY;
@@ -222,8 +298,20 @@ public class LocationUpdatesService extends Service {
     }
 
     private void enqueueLocation(Location location) {
+        if (!active || !getPrefs().getBoolean(PREFS_ENABLED, false)) return;
         try {
             JSONObject payload = buildPayload(location);
+            Map<String, Object> fix = mapOf(
+                    "latitude", location.getLatitude(), "longitude", location.getLongitude(),
+                    "accuracy", location.getAccuracy(), "speed", location.getSpeed(),
+                    "bearing", location.getBearing(), "heading", location.getBearing(),
+                    "altitude", location.getAltitude(), "timestamp", location.getTime());
+            LocationUpdatesEventBridge.emit("location_updated", fix);
+            long elapsed = android.os.SystemClock.elapsedRealtime();
+            if (lastQueuedFix != null && elapsed - lastQueuedAt < 10000L
+                    && lastQueuedFix.distanceTo(location) < 5.0f) return;
+            lastQueuedFix = new Location(location);
+            lastQueuedAt = elapsed;
             enqueuePayload(payload.toString());
             LocationUpdatesEventBridge.emit("location_enqueued", mapOf("queued", queueSize()));
             flushQueueAsync("location_update");
@@ -239,6 +327,7 @@ public class LocationUpdatesService extends Service {
         payload.put("accuracy", location.getAccuracy());
         payload.put("speed", location.getSpeed());
         payload.put("bearing", location.getBearing());
+        payload.put("heading", location.getBearing());
         payload.put("altitude", location.getAltitude());
         payload.put("provider", location.getProvider());
         payload.put("timestamp", location.getTime());
@@ -268,7 +357,8 @@ public class LocationUpdatesService extends Service {
     }
 
     private void flushQueue(String reason) {
-        while (true) {
+        final long session = generation;
+        while (active && session == generation && getPrefs().getBoolean(PREFS_ENABLED, false)) {
             String payload;
             synchronized (queueLock) {
                 payload = pendingPayloads.peekFirst();
@@ -280,15 +370,34 @@ public class LocationUpdatesService extends Service {
                 return;
             }
 
+            try {
+                // Live dispatch must not jump back through old offline fixes.
+                JSONObject fix = new JSONObject(payload);
+                if (System.currentTimeMillis() - fix.optLong("timestamp") > 30000L) {
+                    synchronized (queueLock) { pendingPayloads.pollFirst(); persistQueueLocked(); }
+                    continue;
+                }
+            } catch (Exception malformed) {
+                synchronized (queueLock) { pendingPayloads.pollFirst(); persistQueueLocked(); }
+                continue;
+            }
+
             SendResult result = sendPayload(payload);
+            if (!active || session != generation) return;
             if (result.authFailure) {
                 boolean refreshed = tryRefreshAuthToken();
                 if (refreshed) {
                     result = sendPayload(payload);
+                } else {
+                    LocationUpdatesEventBridge.emit("auth_required", mapOf("statusCode", result.statusCode));
+                    new Handler(Looper.getMainLooper()).post(() -> stop(this));
+                    return;
                 }
             }
+            if (!active || session != generation) return;
 
             if (result.success) {
+                lastSentAt = System.currentTimeMillis();
                 synchronized (queueLock) {
                     pendingPayloads.pollFirst();
                     persistQueueLocked();
@@ -312,8 +421,12 @@ public class LocationUpdatesService extends Service {
     private SendResult sendPayload(String payload) {
         HttpsURLConnection connection = null;
         try {
+            if (!active) return SendResult.failure(-1, "session_stopped");
             URL url = new URL(endpointUrl);
             connection = (HttpsURLConnection) url.openConnection();
+            activeConnection = connection;
+            // Never forward Authorization to a redirected, unrelated host.
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(15000);
@@ -346,6 +459,7 @@ public class LocationUpdatesService extends Service {
         } catch (Exception e) {
             return SendResult.failure(-1, e.getMessage() == null ? "network_error" : e.getMessage());
         } finally {
+            activeConnection = null;
             if (connection != null) {
                 connection.disconnect();
             }
@@ -457,6 +571,7 @@ public class LocationUpdatesService extends Service {
 
     private void enqueuePayload(String payload) {
         synchronized (queueLock) {
+            if (!active) return;
             if (pendingPayloads.size() >= maxQueueSize) {
                 pendingPayloads.pollFirst();
                 LocationUpdatesEventBridge.emit("queue_trimmed", mapOf("queued", pendingPayloads.size()));
@@ -484,7 +599,7 @@ public class LocationUpdatesService extends Service {
     private void scheduleRetry(String reason) {
         long delay;
         synchronized (queueLock) {
-            if (retryScheduled) {
+            if (!active || retryScheduled) {
                 return;
             }
             retryScheduled = true;
@@ -503,6 +618,7 @@ public class LocationUpdatesService extends Service {
     }
 
     private void persistQueueLocked() {
+        if (!active || !getPrefs().getBoolean(PREFS_ENABLED, false)) return;
         JSONArray array = new JSONArray();
         for (String item : pendingPayloads) {
             array.put(item);
@@ -543,7 +659,7 @@ public class LocationUpdatesService extends Service {
 
         long configuredInterval = intent.getLongExtra(EXTRA_INTERVAL_MS, intervalMs);
         if (configuredInterval > 0) {
-            intervalMs = Math.max(5000L, configuredInterval);
+            intervalMs = Math.max(2000L, configuredInterval);
         }
 
         int configuredMaxQueue = intent.getIntExtra(EXTRA_MAX_QUEUE_SIZE, maxQueueSize);
@@ -602,6 +718,7 @@ public class LocationUpdatesService extends Service {
     }
 
     private void persistConfig() {
+        if (!getPrefs().getBoolean(PREFS_ENABLED, false)) return;
         SharedPreferences.Editor editor = getPrefs().edit();
         editor.putString(PREFS_KEY_ENDPOINT, endpointUrl);
         editor.putLong(PREFS_KEY_INTERVAL, intervalMs);
@@ -641,6 +758,23 @@ public class LocationUpdatesService extends Service {
 
     private SharedPreferences getPrefs() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+    }
+
+    private void applySerializedConfig(JSONObject config) throws Exception {
+        endpointUrl = config.getString("url");
+        intervalMs = Math.max(2000L, config.optLong("intervalMs", 15000L));
+        headers = jsonToStringMap(config.optJSONObject("headers") == null ? null : config.getJSONObject("headers").toString());
+        metadata = jsonToObjectMap(config.optJSONObject("metadata") == null ? null : config.getJSONObject("metadata").toString());
+        maxQueueSize = Math.max(10, config.optInt("maxQueueSize", 200));
+        initialBackoffMs = Math.max(1000L, config.optLong("initialBackoffMs", 3000L));
+        maxBackoffMs = Math.max(initialBackoffMs, config.optLong("maxBackoffMs", 60000L));
+        nextBackoffMs = initialBackoffMs;
+        authRefreshUrl = config.isNull("authRefreshUrl") ? null : config.optString("authRefreshUrl", null);
+        authRefreshHeaders = jsonToStringMap(config.optJSONObject("authRefreshHeaders") == null ? null : config.getJSONObject("authRefreshHeaders").toString());
+        authRefreshBody = jsonToObjectMap(config.optJSONObject("authRefreshBody") == null ? null : config.getJSONObject("authRefreshBody").toString());
+        authTokenResponseKey = config.optString("authTokenResponseKey", "accessToken");
+        authHeaderName = config.optString("authHeaderName", "Authorization");
+        authHeaderPrefix = config.optString("authHeaderPrefix", "Bearer ");
     }
 
     private String nonEmptyOrDefault(String value, String fallback) {
@@ -703,6 +837,8 @@ public class LocationUpdatesService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        invalidateSession();
+        if (instance == this) instance = null;
         clearRetrySchedule();
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);

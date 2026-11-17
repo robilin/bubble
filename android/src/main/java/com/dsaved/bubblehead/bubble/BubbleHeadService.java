@@ -1,7 +1,6 @@
 package com.dsaved.bubblehead.bubble;
 
 import android.annotation.SuppressLint;
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -22,6 +21,7 @@ import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.util.TypedValue;
@@ -57,7 +57,28 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     private static String overlayMode = MODE_ICON;
     private static HashMap<String, Object> widgetData = new HashMap<>();
     private static String widgetTemplate = TEMPLATE_MEDIUM;
-    private static BubbleHeadService activeInstance;
+    private static volatile BubbleHeadService activeInstance;
+    private static volatile boolean requestedVisible = true;
+
+    public static boolean isRunning() { return activeInstance != null; }
+    public static boolean isVisible() {
+        BubbleHeadService service = activeInstance;
+        return service != null && service.mFloatingWidgetView != null
+                && service.mFloatingWidgetView.getVisibility() == View.VISIBLE;
+    }
+    public static void initiallyVisible(boolean visible) { requestedVisible = visible; }
+    public static void setVisible(boolean visible) {
+        requestedVisible = visible;
+        new Handler(Looper.getMainLooper()).post(() -> {
+            BubbleHeadService service = activeInstance;
+            if (service != null && service.mFloatingWidgetView != null) {
+                service.mFloatingWidgetView.setVisibility(visible ? View.VISIBLE : View.GONE);
+                if (!visible && service.removeFloatingWidgetView != null) {
+                    service.removeFloatingWidgetView.setVisibility(View.GONE);
+                }
+            }
+        });
+    }
 
     private int x_init_cord, y_init_cord, x_init_margin, y_init_margin;
     static Bitmap _image;
@@ -113,16 +134,9 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
             _image = null;
         }
 
-        // send application to background if this is true
-        if (_sendAppToBackground) {
-            Intent i = new Intent();
-            i.setAction(Intent.ACTION_MAIN);
-            i.addCategory(Intent.CATEGORY_HOME);
-            activity.startActivity(i);
-        }
-
         Intent intent = new Intent(activity, BubbleHeadService.class);
-        activity.startService(intent);
+        if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(intent);
+        else activity.startService(intent);
     }
 
     public static void startWidgetService(Context activity, HashMap<String, Object> data, String template) {
@@ -131,16 +145,9 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         setWidgetData(data);
         setWidgetTemplate(template);
 
-        // send application to background if this is true
-        if (_sendAppToBackground) {
-            Intent i = new Intent();
-            i.setAction(Intent.ACTION_MAIN);
-            i.addCategory(Intent.CATEGORY_HOME);
-            activity.startActivity(i);
-        }
-
         Intent intent = new Intent(activity, BubbleHeadService.class);
-        activity.startService(intent);
+        if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(intent);
+        else activity.startService(intent);
     }
 
     public static void stopService(Context activity) {
@@ -160,7 +167,15 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundCompat();
-        return START_STICKY;
+        setVisible(requestedVisible);
+        if (_sendAppToBackground) {
+            _sendAppToBackground = false;
+            Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(home);
+        }
+        // Overlay state is restored by the host, not by an uncontrolled alarm.
+        return START_NOT_STICKY;
     }
 
     /**
@@ -214,36 +229,16 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         }
     }
 
-    /**
-     * When the user swipes the app from the Recents screen, reschedule the service
-     * to restart after a short delay instead of dying silently.
-     */
-    @Override
-    public void onTaskRemoved(Intent rootIntent) {
-        Intent restartIntent = new Intent(getApplicationContext(), BubbleHeadService.class);
-        int pendingFlags = PendingIntent.FLAG_ONE_SHOT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-        PendingIntent restartPending = PendingIntent.getService(
-                getApplicationContext(), 1, restartIntent, pendingFlags);
-        AlarmManager alarmManager = (AlarmManager) getSystemService(ALARM_SERVICE);
-        if (alarmManager != null) {
-            alarmManager.set(
-                    AlarmManager.ELAPSED_REALTIME,
-                    SystemClock.elapsedRealtime() + 1000,
-                    restartPending);
-        }
-        super.onTaskRemoved(rootIntent);
-    }
-
-
     @Override
     public void onCreate() {
         super.onCreate();
         activeInstance = this;
         // Promote to foreground immediately so Android won't kill us before onStartCommand fires
         startForegroundCompat();
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            stopSelf();
+            return;
+        }
 
         // init WindowManager
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
@@ -281,7 +276,8 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         remove_image_view = (ImageView) removeFloatingWidgetView.findViewById(R.id.remove_img);
 
         // Add the view to the window
-        mWindowManager.addView(removeFloatingWidgetView, paramRemove);
+        try { mWindowManager.addView(removeFloatingWidgetView, paramRemove); }
+        catch (RuntimeException denied) { stopSelf(); return; }
 
         // Inflate the floating view layout we created
         mFloatingWidgetView = inflater.inflate(R.layout.layout_bubble_head, null);
@@ -312,7 +308,9 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         params.y = 100;
 
         // Add the view to the window
-        mWindowManager.addView(mFloatingWidgetView, params);
+        mFloatingWidgetView.setVisibility(requestedVisible ? View.VISIBLE : View.GONE);
+        try { mWindowManager.addView(mFloatingWidgetView, params); }
+        catch (RuntimeException denied) { stopSelf(); return; }
 
         // Set image for icon mode.
         ImageView chatHeadImage = mFloatingWidgetView.findViewById(R.id.chat_head_profile_iv);
@@ -722,22 +720,19 @@ public class BubbleHeadService extends Service implements View.OnClickListener {
         _continueToSnap = false;
         // bring the application to front
         Intent it = new Intent("intent.bring.app.to.foreground");
-        it.setComponent(new ComponentName(getPackageName(), getApplicationContext().getPackageName() + ".MainActivity"));
-        it.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getApplicationContext().startActivity(it);
-
-        // stop the service
-        stopSelf();
+        try { BubblePlugin.bringAppToForeground(getApplicationContext()); }
+        catch (RuntimeException denied) { return; }
+        setVisible(false);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         activeInstance = null;
-        if (mFloatingWidgetView != null) {
+        if (mFloatingWidgetView != null && mFloatingWidgetView.isAttachedToWindow()) {
             mWindowManager.removeView(mFloatingWidgetView);
         }
-        if (removeFloatingWidgetView != null) {
+        if (removeFloatingWidgetView != null && removeFloatingWidgetView.isAttachedToWindow()) {
             mWindowManager.removeView(removeFloatingWidgetView);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

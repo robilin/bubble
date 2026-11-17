@@ -23,6 +23,10 @@ public final class LocationUpdatesEventBridge {
         eventSink = null;
     }
 
+    public static synchronized void clearEventSink(EventChannel.EventSink owner) {
+        if (eventSink == owner) eventSink = null;
+    }
+
     public static void emit(final String type, final Map<String, Object> payload) {
         final EventChannel.EventSink sink;
         synchronized (LocationUpdatesEventBridge.class) {
@@ -42,6 +46,9 @@ public final class LocationUpdatesEventBridge {
         MAIN_HANDLER.post(new Runnable() {
             @Override
             public void run() {
+                synchronized (LocationUpdatesEventBridge.class) {
+                    if (eventSink != sink) return;
+                }
                 sink.success(event);
             }
         });

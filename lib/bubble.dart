@@ -30,6 +30,7 @@ class Bubble {
   /// puts app in background and shows floaty-bubble head
   Future<void> startBubbleHead({
     bool sendAppToBackground = true,
+    bool initiallyVisible = true,
     String? iconPath,
   }) async {
     try {
@@ -39,7 +40,8 @@ class Bubble {
 
       ByteData bytes = await rootBundle.load(finalIconPath);
       var buffer = bytes.buffer;
-      var encodedImage = base64.encode(Uint8List.view(buffer));
+      var encodedImage = base64
+          .encode(buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes));
 
       await _channel.invokeMethod('startBubbleHead', {
         "image": encodedImage,
@@ -47,6 +49,7 @@ class Bubble {
         "showClose": showCloseButton,
         "dragToClose": allowDragToClose,
         "sendAppToBackground": sendAppToBackground,
+        "initiallyVisible": initiallyVisible,
       });
 
       print('✅ Bubble started with icon: $finalIconPath');
@@ -69,6 +72,7 @@ class Bubble {
   /// or [BubbleWidgetTemplate.large].
   Future<void> startBubbleWidget({
     bool sendAppToBackground = true,
+    bool initiallyVisible = true,
     Map<String, dynamic>? widgetData,
     String template = BubbleWidgetTemplate.medium,
   }) async {
@@ -78,6 +82,7 @@ class Bubble {
         'showClose': showCloseButton,
         'dragToClose': allowDragToClose,
         'sendAppToBackground': sendAppToBackground,
+        'initiallyVisible': initiallyVisible,
         'widgetData': widgetData ?? <String, dynamic>{},
         'template': template,
       });
@@ -119,6 +124,37 @@ class Bubble {
     }
   }
 
+  /// Query native state instead of assuming a previous Dart call stayed alive.
+  Future<Map<String, dynamic>> getStatus() async {
+    final value = await _channel.invokeMapMethod<String, dynamic>('getStatus');
+    return value ?? <String, dynamic>{};
+  }
+
+  /// Hide/show the existing overlay without restarting its foreground service.
+  /// Prime it while the app is visible using initiallyVisible: false.
+  Future<void> setBubbleVisible(bool visible) async {
+    await _channel.invokeMethod('setBubbleVisible', {'visible': visible});
+  }
+
+  /// Android can reject background launches; callers must retain notifications.
+  Future<void> bringAppToForeground() async {
+    await _channel.invokeMethod('bringAppToForeground');
+  }
+
+  /// Show a short-lived offer notification from a foreground or headless engine.
+  /// Requires native location mode to be running. Never accepts a booking.
+  /// Keys: booking_id, title, body, expiresAtMs and optional openApp.
+  Future<void> showBookingAlert(Map<String, dynamic> data) async {
+    final expiry = data['expiresAtMs'];
+    if (expiry is! num || expiry <= DateTime.now().millisecondsSinceEpoch) {
+      throw ArgumentError('A future expiresAtMs is required.');
+    }
+    if ('${data['booking_id'] ?? ''}'.trim().isEmpty) {
+      throw ArgumentError('booking_id is required.');
+    }
+    await _channel.invokeMethod('showBookingAlert', data);
+  }
+
   /// Starts periodic background location uploads to the configured HTTPS endpoint.
   Future<void> startLocationUpdates({
     required String httpsUrl,
@@ -144,7 +180,7 @@ class Bubble {
     }
 
     final int intervalMs =
-        interval.inMilliseconds < 5000 ? 5000 : interval.inMilliseconds;
+        interval.inMilliseconds < 2000 ? 2000 : interval.inMilliseconds;
     final int initialBackoffMs = initialBackoff.inMilliseconds < 1000
         ? 1000
         : initialBackoff.inMilliseconds;

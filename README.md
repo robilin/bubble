@@ -2,10 +2,67 @@
 
 Android-first Flutter plugin for:
 - A Truecaller-like floating bubble experience over other apps
+- A widget overlay implementation for richer in-app or over-app UI
 - Bringing your app to foreground when the bubble is tapped
 - Callback-style location update events plus optional background location uploads for driver mode
 
 This plugin currently supports Android.
+
+## Reliable background integration
+
+The floating overlay and native GPS uploader are separate features. An icon
+alone does not upload locations, and neither service can make an app immune to
+Android termination, user Stop/Force stop, or device battery restrictions.
+
+Request overlay and notification permissions through the host app while its
+activity is visible. Start native location mode when the user explicitly goes
+online; stop it on offline/sign-out. Feed `location_updated` events into your
+Flutter map without uploading those same coordinates a second time.
+
+Prime the overlay before the activity moves to the background:
+
+```dart
+await bubble.startBubbleHead(
+  sendAppToBackground: false,
+  initiallyVisible: false,
+  iconPath: 'assets/images/icon.png',
+);
+// On app background/resume, change the existing window, not service lifetime.
+await bubble.setBubbleVisible(true);
+final status = await bubble.getStatus();
+// status: bubbleRunning, bubbleVisible, locationRunning
+```
+
+`startBubbleWidget` also accepts `initiallyVisible`. Service startup must occur
+from a resumed, visible activity. Starting location mode there requires fine or
+coarse location permission; Always permission may be needed for later background
+restart scenarios. Android 15+ places additional restrictions on starting services
+from the background: overlay permission alone is not a general exemption.
+
+The native location interval supports a minimum of two seconds. Upload payloads
+include both `bearing` and `heading`. `location_updated` includes the sampled
+coordinates so the UI can display the same positions uploaded natively.
+
+For a short-lived incoming offer, a headless FCM handler can call:
+
+```dart
+await Bubble().showBookingAlert({
+  'booking_id': '123',
+  'title': 'New delivery nearby',
+  'body': 'Open the app to review this delivery',
+  'expiresAtMs': DateTime.now().millisecondsSinceEpoch + 20000,
+  'openApp': true,
+});
+```
+
+The host must supply the **actual server offer deadline**, not create a fresh
+deadline when an old push arrives. Native tracking must already be active;
+expired offers are rejected. A notification remains the fallback when Android
+blocks an automatic foreground launch. This API does **not** accept bookings.
+The host must validate assignment, eligibility and expiry on its backend before
+accepting. For Android background handling, send high-priority data messages and
+render a user-visible alert; notification-plus-data messages can instead be
+handled by the system notification tray until the user taps them.
 
 ## Install
 
